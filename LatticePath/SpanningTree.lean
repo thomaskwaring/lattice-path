@@ -80,8 +80,9 @@ theorem add_edge_acyclic [DecidableEq V] {G : SimpleGraph V} (hG : IsAcyclic G) 
   )
   exact hG c' (Walk.IsCycle.transfer (qc := hc) ..)
 
-theorem Connected.connected_of_maximal_acyclic [Inhabited V] (T : SimpleGraph V) (hG : G.Connected)
+theorem Connected.connected_of_maximal_acyclic (T : SimpleGraph V) (hG : G.Connected)
     (h : Maximal (fun H => H ≤ G ∧ H.IsAcyclic) T) : T.Connected := by
+  have : Inhabited V := Classical.inhabited_of_nonempty hG.nonempty
   rw [connected_iff_exists_forall_reachable]
   simp only [Maximal, and_imp] at h
   obtain ⟨hT, h⟩ := h
@@ -123,8 +124,8 @@ theorem Connected.connected_of_maximal_acyclic [Inhabited V] (T : SimpleGraph V)
     simp_rw [s, SetLike.coe, ConnectedComponent.supp_inj, ←ConnectedComponent.mem_supp_iff]
     grind
 
-theorem Connected.has_spanning_tree [Inhabited V] (hG : G.Connected) {H : SimpleGraph V}
-    (hHG : H ≤ G) (hH : H.IsAcyclic) : ∃ T ≤ G, H ≤ T ∧ T.IsTree := by
+theorem Connected.has_spanning_tree (hG : G.Connected) {H : SimpleGraph V} (hHG : H ≤ G)
+  (hH : H.IsAcyclic) : ∃ T ≤ G, H ≤ T ∧ T.IsTree := by
   obtain ⟨T, hHT, hT⟩ := exists_maximal_acyclic_extension hHG hH
   exact ⟨T, hT.1.1, hHT, hG.connected_of_maximal_acyclic T hT, hT.1.2⟩
 

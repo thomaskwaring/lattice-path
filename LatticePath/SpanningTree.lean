@@ -47,6 +47,17 @@ theorem sSup_acyclic_of_directed_of_acyclic (Hs : Set <| SimpleGraph V) (H₀ : 
   rw [ne_eq, ←Walk.nil_iff_eq_nil, Walk.nil_iff_support_eq] at hp ⊢
   grind
 
+theorem exists_maximal_acyclic_extension {H : SimpleGraph V} (hHG : H ≤ G) (hH : H.IsAcyclic) :
+    ∃ H' : SimpleGraph V, H ≤ H' ∧ Maximal (fun H => H ≤ G ∧ H.IsAcyclic) H' := by
+  let s : Set (SimpleGraph V) := {H : SimpleGraph V | H ≤ G ∧ H.IsAcyclic}
+  apply zorn_le_nonempty₀ s
+  · intro c hcs hc y hy
+    refine ⟨sSup c, ⟨?_, ?_⟩, CompleteLattice.le_sSup c⟩
+    · simp only [sSup_le_iff]
+      grind
+    · exact sSup_acyclic_of_directed_of_acyclic c ⟨y, hy⟩ (by grind) hc.directedOn
+  · grind
+
 theorem add_edge_acyclic [DecidableEq V] {G : SimpleGraph V} (hG : IsAcyclic G) (x y : V)
     (hxy : ¬ Reachable G x y) : IsAcyclic <| G ⊔ fromEdgeSet {s(x,y)} := by
   have x_neq_y : x ≠ y := fun c => (c ▸ hxy) (Reachable.refl y)
@@ -112,20 +123,10 @@ theorem Connected.connected_of_maximal_acyclic [Inhabited V] (T : SimpleGraph V)
     simp_rw [s, SetLike.coe, ConnectedComponent.supp_inj, ←ConnectedComponent.mem_supp_iff]
     grind
 
-theorem Connected.has_spanning_tree [Inhabited V] (hG : G.Connected) : ∃ T ≤ G, T.IsTree := by
-  let s : Set (SimpleGraph V) := {H : SimpleGraph V | H ≤ G ∧ H.IsAcyclic}
-  suffices ∃ T : (SimpleGraph V), Maximal (fun H => H ∈ s) T by
-    obtain ⟨T, hT⟩ := this
-    exact ⟨T, hT.1.1, hG.connected_of_maximal_acyclic T hT, hT.1.2⟩
-  apply zorn_le₀ s
-  intro c hcs hc
-  obtain rfl | ⟨H₀, hH₀⟩ := c.eq_empty_or_nonempty
-  · use ⊥
-    simp [s]
-  · have : ∀ H ∈ c, H.IsAcyclic := by grind
-    have :_ := sSup_acyclic_of_directed_of_acyclic c ⟨H₀, hH₀⟩ this hc.directedOn
-    refine ⟨sSup c, ?_, CompleteLattice.le_sSup c⟩
-    simp_rw [s, Set.mem_setOf_eq, sSup_le_iff]
-    grind
+theorem Connected.has_spanning_tree [Inhabited V] (hG : G.Connected) {H : SimpleGraph V}
+    (hHG : H ≤ G) (hH : H.IsAcyclic) : ∃ T ≤ G, H ≤ T ∧ T.IsTree := by
+  obtain ⟨T, hHT, hT⟩ := exists_maximal_acyclic_extension hHG hH
+  exact ⟨T, hT.1.1, hHT, hG.connected_of_maximal_acyclic T hT, hT.1.2⟩
+
 
 end SimpleGraph

@@ -4,23 +4,6 @@ namespace SimpleGraph
 
 variable {V : Type _} {G : SimpleGraph V}
 
-theorem Connected.subset_connected_complement (h : G.Connected) (s : Set V) (hs : s.Nonempty) :
-    s = Set.univ ∨ ∃ (u v : V), u ∈ s ∧ v ∉ s ∧ G.Adj u v := by
-  simp_rw [Classical.or_iff_not_imp_left, Set.ne_univ_iff_exists_notMem]
-  intro ⟨v, hv⟩
-  obtain ⟨u, hu⟩ := hs
-  obtain ⟨p⟩ := h u v
-  have : DecidablePred (· ∉ s) := fun _ => Classical.propDecidable _
-  let i : ℕ := List.findIdx (fun u ↦ decide (u ∉ s)) p.support
-  have : v ∈ p.support := Walk.end_mem_support p
-  have : i < p.support.length := by grind
-  have : p.support[0] = u := by
-    rw [←p.getVert_eq_support_getElem] <;> grind [Walk.getVert_zero]
-  have : 0 < i := by apply List.lt_findIdx_of_not <;> grind
-  refine ⟨p.support[i-1], p.support[i], by grind, by grind, ?_⟩
-  rw [show p.support[i] = p.support[i-1 + 1] by grind]
-  exact p.isChain_adj_support.getElem ..
-
 theorem Walk.shrink_of_directed_sSup (Hs : Set <| SimpleGraph V) (H₀ : Hs)
     (h_dir : DirectedOn (· ≤ ·) Hs) {u v : V} (p : (sSup Hs).Walk u v) :
     ∃ H ∈ Hs, ∃ (p' : H.Walk u v),
@@ -80,51 +63,57 @@ theorem add_edge_acyclic [DecidableEq V] {G : SimpleGraph V} (hG : IsAcyclic G) 
   )
   exact hG c' (Walk.IsCycle.transfer (qc := hc) ..)
 
+theorem reachable_eq_of_maximal_acyclic (F : SimpleGraph V)
+    (h : Maximal (fun H => H ≤ G ∧ H.IsAcyclic) F) : F.Reachable = G.Reachable := by
+  simp only [Maximal, and_imp] at h
+  obtain ⟨hF, h⟩ := h
+  apply funext; intro u; apply funext; intro v
+  refine propext ⟨fun hr => hr.mono hF.1, ?_⟩
+  contrapose! h
+  obtain ⟨p⟩ := h.1
+  let s : Set V := F.connectedComponentMk u
+  have hus : u ∈ s := ConnectedComponent.connectedComponentMk_mem
+  have hvs : v ∉ s := h.2 ∘ (F.connectedComponentMk u).reachable_of_mem_supp hus
+  obtain ⟨⟨⟨u', v'⟩, huv⟩, _, hu, hv⟩ := p.exists_boundary_dart s hus hvs
+  let F' := (F ⊔ fromEdgeSet {s(u', v')})
+  suffices F'.IsAcyclic by
+    rw [le_iff_adj] at hF
+    refine ⟨F', ?_, this, le_sup_left, ?_⟩
+    · have : G.Adj v' u' := G.symm huv
+      simp only [sup_le_iff, le_iff_adj, fromEdgeSet_adj, Set.mem_singleton_iff, Sym2.eq,
+      Sym2.rel_iff', Prod.mk.injEq, Prod.swap_prod_mk, ne_eq, and_imp, F']
+      grind
+    · rw [le_iff_adj]
+      push_neg
+      refine ⟨u', v', ?_, ?_⟩
+      · simp only [sup_adj, fromEdgeSet_adj, Set.mem_singleton_iff, ne_eq, true_and, F']
+        grind
+      · intro hc
+        have : _ := ConnectedComponent.mem_supp_congr_adj (F.connectedComponentMk u) hc
+        grind
+  have : DecidableEq V := Classical.decEq V
+  apply add_edge_acyclic (hG := hF.2)
+  intro hc
+  rw [←ConnectedComponent.eq] at hc
+  suffices F.connectedComponentMk u' = s by
+    exact (hc ▸ this ▸ hv) ConnectedComponent.connectedComponentMk_mem
+  simp_rw [s, SetLike.coe, ConnectedComponent.supp_inj, ←ConnectedComponent.mem_supp_iff]
+  grind
+
+/-- Every graph has a spanning forest. -/
+theorem exists_extension_acyclic_reachable_eq {H : SimpleGraph V} (hHG : H ≤ G)
+    (hH : H.IsAcyclic) : ∃ F ≤ G, H ≤ F ∧ F.IsAcyclic ∧ F.Reachable = G.Reachable := by
+  obtain ⟨F, hHF, hF⟩ := exists_maximal_acyclic_extension hHG hH
+  exact ⟨F, hF.1.1, hHF, hF.1.2, reachable_eq_of_maximal_acyclic F hF⟩
+
 theorem Connected.connected_of_maximal_acyclic (T : SimpleGraph V) (hG : G.Connected)
     (h : Maximal (fun H => H ≤ G ∧ H.IsAcyclic) T) : T.Connected := by
-  have : Inhabited V := Classical.inhabited_of_nonempty hG.nonempty
-  rw [connected_iff_exists_forall_reachable]
-  simp only [Maximal, and_imp] at h
-  obtain ⟨hT, h⟩ := h
-  contrapose! h
-  let ⟨v, hv⟩ := h default
-  let s : Set V := T.connectedComponentMk default
-  have hus : default ∈ s := ConnectedComponent.connectedComponentMk_mem
-  have hvs : v ∉ s := by
-    intro hvs
-    apply hv
-    apply ConnectedComponent.reachable_of_mem_supp (T.connectedComponentMk default)
-    all_goals grind
-  obtain foo := Connected.subset_connected_complement hG s ⟨default, hus⟩
-  rcases foo with _ | ⟨u', v', huv⟩
-  · grind
-  · let T' := (T ⊔ fromEdgeSet {s(u', v')})
-    suffices T'.IsAcyclic by
-      rw [le_iff_adj] at hT
-      refine ⟨T', ?_, this, le_sup_left, ?_⟩
-      · have : G.Adj v' u' := G.symm huv.2.2
-        simp only [sup_le_iff, le_iff_adj, fromEdgeSet_adj, Set.mem_singleton_iff, Sym2.eq,
-        Sym2.rel_iff', Prod.mk.injEq, Prod.swap_prod_mk, ne_eq, and_imp, T']
-        grind
-      · rw [le_iff_adj]
-        push_neg
-        refine ⟨u', v', ?_, ?_⟩
-        · simp only [sup_adj, fromEdgeSet_adj, Set.mem_singleton_iff, ne_eq, true_and, T']
-          grind
-        · intro hc
-          have : _ := ConnectedComponent.mem_supp_congr_adj (T.connectedComponentMk default) hc
-          grind
-    simp_rw [T']
-    have : DecidableEq V := Classical.decEq V
-    apply add_edge_acyclic (hG := hT.2)
-    intro hc
-    rw [←ConnectedComponent.eq] at hc
-    suffices T.connectedComponentMk u' = s by
-      exact (hc ▸ this ▸ huv.2.1) ConnectedComponent.connectedComponentMk_mem
-    simp_rw [s, SetLike.coe, ConnectedComponent.supp_inj, ←ConnectedComponent.mem_supp_iff]
-    grind
+  have : Nonempty V := hG.nonempty
+  refine ⟨fun u v => ?_⟩
+  rw [reachable_eq_of_maximal_acyclic T h]
+  exact hG u v
 
-theorem Connected.has_spanning_tree (hG : G.Connected) {H : SimpleGraph V} (hHG : H ≤ G)
+theorem Connected.exists_extension_isTree_le (hG : G.Connected) {H : SimpleGraph V} (hHG : H ≤ G)
   (hH : H.IsAcyclic) : ∃ T ≤ G, H ≤ T ∧ T.IsTree := by
   obtain ⟨T, hHT, hT⟩ := exists_maximal_acyclic_extension hHG hH
   exact ⟨T, hT.1.1, hHT, hG.connected_of_maximal_acyclic T hT, hT.1.2⟩

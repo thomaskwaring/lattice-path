@@ -4,31 +4,25 @@ namespace SimpleGraph
 
 variable {V : Type _} {G : SimpleGraph V}
 
-theorem Walk.shrink_of_directed_sSup (Hs : Set <| SimpleGraph V) (H₀ : Hs)
+theorem Walk.exists_mem_contains_edges_of_directed (Hs : Set <| SimpleGraph V) (hHs : Hs.Nonempty)
     (h_dir : DirectedOn (· ≤ ·) Hs) {u v : V} (p : (sSup Hs).Walk u v) :
-    ∃ H ∈ Hs, ∃ (p' : H.Walk u v),
-      p'.edges = p.edges ∧ p'.support = p.support := by
+    ∃ H ∈ Hs, ∀ e ∈ p.edges, e ∈ H.edgeSet := by
   induction p with
-  | nil => refine ⟨H₀, by grind, Walk.nil, by simp⟩
+  | nil => exact ⟨hHs.some, hHs.some_mem, by simp⟩
   | @cons u v w h_adj p ih =>
-    obtain ⟨H₁, hH₁, p', hp'⟩ := ih
-    rw [sSup_adj] at h_adj
-    replace ⟨H₂, hH₂, h_adj⟩ : ∃ H₂ ∈ Hs, H₂.Adj u v := h_adj
-    obtain ⟨H, hH, h⟩ := h_dir H₁ hH₁ H₂ hH₂
-    let p'' : H.Walk v w := Walk.map (Hom.ofLE h.1) p'
-    have : p''.edges = p'.edges ∧ p''.support = p'.support := by simp [p'']
-    have : H.Adj u v := by grind [SimpleGraph.le_iff_adj]
-    exact ⟨H, hH, Walk.cons this p'', by grind [support_cons, edges_cons]⟩
+    obtain ⟨H₁, hH₁, ih⟩ := ih
+    obtain ⟨H₂, hH₂, h_adj⟩ : ∃ H₂ ∈ Hs, H₂.Adj u v := h_adj
+    obtain ⟨H, hH, h₁, h₂⟩ := h_dir H₁ hH₁ H₂ hH₂
+    simpa using ⟨H, hH, (le_iff_adj.mp h₂) _ _ h_adj, fun a ha => edgeSet_mono h₁ (ih a ha)⟩
 
-theorem sSup_acyclic_of_directed_of_acyclic (Hs : Set <| SimpleGraph V) (H₀ : Hs)
+theorem sSup_acyclic_of_directed_of_acyclic (Hs : Set <| SimpleGraph V)
     (h_acyc : ∀ H ∈ Hs, H.IsAcyclic) (h_dir : DirectedOn (· ≤ ·) Hs) : IsAcyclic (sSup Hs) := by
-  intro u p hp
-  obtain ⟨H, hH, p', hp'⟩ := p.shrink_of_directed_sSup Hs H₀ h_dir
-  suffices p'.IsCycle by exact (h_acyc H) hH p' this
-  rw [Walk.isCycle_def, Walk.isTrail_def] at hp ⊢
-  refine ⟨by grind, ?_, by grind⟩
-  rw [ne_eq, ←Walk.nil_iff_eq_nil, Walk.nil_iff_support_eq] at hp ⊢
-  grind
+  rcases Hs.eq_empty_or_nonempty with hemp | hnemp
+  · rw [hemp, sSup_empty]
+    exact isAcyclic_bot
+  · intro u p hp
+    obtain ⟨H, hH, hpH⟩ := p.exists_mem_contains_edges_of_directed Hs hnemp h_dir
+    exact h_acyc H hH (p.transfer H hpH) <| Walk.IsCycle.transfer hp hpH
 
 theorem exists_maximal_acyclic_extension {H : SimpleGraph V} (hHG : H ≤ G) (hH : H.IsAcyclic) :
     ∃ H' : SimpleGraph V, H ≤ H' ∧ Maximal (fun H => H ≤ G ∧ H.IsAcyclic) H' := by
@@ -38,22 +32,16 @@ theorem exists_maximal_acyclic_extension {H : SimpleGraph V} (hHG : H ≤ G) (hH
     refine ⟨sSup c, ⟨?_, ?_⟩, CompleteLattice.le_sSup c⟩
     · simp only [sSup_le_iff]
       grind
-    · exact sSup_acyclic_of_directed_of_acyclic c ⟨y, hy⟩ (by grind) hc.directedOn
+    · exact sSup_acyclic_of_directed_of_acyclic c (by grind) hc.directedOn
   · grind
 
 theorem add_edge_acyclic [DecidableEq V] {G : SimpleGraph V} (hG : IsAcyclic G) (x y : V)
     (hxy : ¬ Reachable G x y) : IsAcyclic <| G ⊔ fromEdgeSet {s(x,y)} := by
   have x_neq_y : x ≠ y := fun c => (c ▸ hxy) (Reachable.refl y)
-  have h_add_remove : G = (G ⊔ fromEdgeSet {s(x,y)}) \ fromEdgeSet {s(x,y)} := by
-    simp only [sup_sdiff_right_self]
-    apply edgeSet_inj.mp; ext e;
-    simp only [edgeSet_sdiff, edgeSet_fromEdgeSet, edgeSet_sdiff_sdiff_isDiag, Set.mem_diff,
-      Set.mem_singleton_iff, iff_self_and]
-    intro he c
-    rw [c, mem_edgeSet] at he
-    exact hxy <| Adj.reachable he
+  have h_add_remove : (G ⊔ fromEdgeSet {s(x,y)}) \ fromEdgeSet {s(x,y)} = G := by
+    simpa using fun h => hxy h.reachable
   have h_bridge : (G ⊔ fromEdgeSet {s(x,y)}).IsBridge s(x,y) := by
-    simpa [isBridge_iff, x_neq_y, ←h_add_remove]
+    simpa [isBridge_iff, x_neq_y, h_add_remove]
   intro u c hc
   apply isBridge_iff_adj_and_forall_cycle_notMem.mp at h_bridge
   let c' : G.Walk u u := Walk.transfer c G (by
@@ -86,8 +74,7 @@ theorem reachable_eq_of_maximal_acyclic (F : SimpleGraph V)
     · rw [le_iff_adj]
       push_neg
       refine ⟨u', v', ?_, ?_⟩
-      · simp only [sup_adj, fromEdgeSet_adj, Set.mem_singleton_iff, ne_eq, true_and, F']
-        grind
+      · simpa [F'] using Or.inr huv.ne
       · intro hc
         have : _ := ConnectedComponent.mem_supp_congr_adj (F.connectedComponentMk u) hc
         grind
@@ -99,6 +86,31 @@ theorem reachable_eq_of_maximal_acyclic (F : SimpleGraph V)
     exact (hc ▸ this ▸ hv) ConnectedComponent.connectedComponentMk_mem
   simp_rw [s, SetLike.coe, ConnectedComponent.supp_inj, ←ConnectedComponent.mem_supp_iff]
   grind
+
+theorem maximal_acyclic_of_reachable_eq {F : SimpleGraph V} (hF : F ≤ G ∧ F.IsAcyclic)
+    (h : F.Reachable = G.Reachable) : Maximal (fun H => H ≤ G ∧ H.IsAcyclic) F := by
+  by_contra!
+  obtain ⟨F', hF'⟩ := exists_gt_of_not_maximal (P := fun H => H ≤ G ∧ H.IsAcyclic) hF this
+  obtain ⟨e, he⟩ := Set.exists_of_ssubset <| edgeSet_strict_mono hF'.1
+  have : (F ⊔ fromEdgeSet {e}).IsAcyclic := by
+    apply hF'.2.2.anti
+    refine sup_le_iff.mpr ⟨by grind, ?_⟩
+    rw [←F'.fromEdgeSet_edgeSet]
+    grind [fromEdgeSet_mono]
+  have e_ndiag : ¬ e.IsDiag := F'.edgeSet_subset_setOf_not_isDiag he.1
+  have F_sdiff_eq : (F ⊔ fromEdgeSet {e}) \ fromEdgeSet {e} = F := by
+    simpa using he.2
+  have h_bridge : (F ⊔ fromEdgeSet {e}).IsBridge e := by
+    apply isAcyclic_iff_forall_edge_isBridge.mp this
+    simpa using Or.inr e_ndiag
+  simp only [IsBridge, F_sdiff_eq] at h_bridge
+  cases e
+  case h u v =>
+    simp only [Sym2.lift_mk] at h_bridge
+    suffices G.Reachable u v by exact (h ▸ h_bridge.2) this
+    apply Reachable.mono hF'.2.1
+    apply Adj.reachable
+    simpa using he.1
 
 /-- Every graph has a spanning forest. -/
 theorem exists_extension_acyclic_reachable_eq {H : SimpleGraph V} (hHG : H ≤ G)
